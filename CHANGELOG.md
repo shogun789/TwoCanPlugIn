@@ -4,6 +4,18 @@
 
 This fork keeps the upstream TwoCan 2.1.1.0 plugin version while adding a maintained Windows compatibility layer for OpenCPN 5.14.
 
+### Authorship, licensing and provenance
+
+- Explicitly identifies **Steven Adler / TwoCanPlugIn** as the original TwoCan author/maintainer in the fork documentation and release metadata.
+- Preserves the original copyright and license notices in upstream source files.
+- Added a root `COPYING` containing the unmodified GNU GPL version 3 text.
+- Added `THIRD_PARTY_NOTICES.md` covering TwoCan, OpenCPN API/NMEA0183 material, wxJSON and bundled Windows driver provenance.
+- Marks fork-modified source/build files with a dated 2026 modification notice where appropriate.
+- Includes `COPYING` and `THIRD_PARTY_NOTICES.md` in the OpenCPN import tarball.
+- Keeps the legacy Windows driver DLLs to preserve upstream functionality and documents that they are carried unchanged from upstream TwoCan commit `2e36d999566e84ea66497d5585a70b89af53f9b1`.
+- Pins the upstream `TwoCanPluginDrivers` source repository at commit `1bdbf59538e9f58e0297ba0e393165aec12f38bb` and publishes a source snapshot next to the binary release.
+- Documents that the source archive for the same GitHub release tag is the corresponding source for the fork-specific binary build.
+
 ### OpenCPN 5.14 packaging
 
 - Ported the Windows CI build to Visual Studio 2022 and wxWidgets 3.2.6.
