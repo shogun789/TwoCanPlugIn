@@ -33,7 +33,9 @@ jobs:
         shell: pwsh
         run: |
           choco install gettext -y --no-progress
-          $env:PATH = "C:\ProgramData\chocolatey\bin;$env:PATH"
+          $gettextBin = 'C:\Program Files\gettext-iconv\bin'
+          $env:PATH = "$gettextBin;$env:PATH"
+          $gettextBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           Get-Command msgfmt
           Get-Command msgmerge
 
