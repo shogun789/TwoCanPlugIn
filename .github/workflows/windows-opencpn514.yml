@@ -65,12 +65,27 @@ jobs:
         shell: pwsh
         run: cmake --build build --config Release --parallel
 
-      - name: Inspect DLL with VS2022 dumpbin
+      - name: Build and test CANable V2 SLCAN driver
+        shell: pwsh
+        run: |
+          cmake -S drivers/cantact -B build-cantact -G "Visual Studio 17 2022" -A Win32
+          cmake --build build-cantact --config Release --parallel
+          ctest --test-dir build-cantact -C Release --output-on-failure
+
+          $driver = Get-ChildItem build-cantact -Recurse -Filter 'cantact.dll' | Select-Object -First 1
+          if (-not $driver) { throw 'Modern CANable cantact.dll was not produced' }
+          Write-Host "Built modern CANable driver: $($driver.FullName)"
+
+          # Replace the 2019 legacy binary before CPack stages data/drivers.
+          Copy-Item $driver.FullName 'data/drivers/cantact.dll' -Force
+          "CANTACT_DLL=$($driver.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Inspect DLLs with VS2022 dumpbin
         shell: pwsh
         run: |
           $dll = Get-ChildItem build -Recurse -Filter '*twocan*.dll' | Select-Object -First 1
           if (-not $dll) { throw 'TwoCan DLL was not produced' }
-          Write-Host "Built: $($dll.FullName)"
+          Write-Host "Built plugin: $($dll.FullName)"
 
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
           if (-not (Test-Path $vswhere)) {
@@ -87,13 +102,11 @@ jobs:
           $dumpbin = Get-ChildItem "$vsInstall\VC\Tools\MSVC\*\bin\Hostx64\x86\dumpbin.exe" -ErrorAction SilentlyContinue |
             Sort-Object FullName -Descending |
             Select-Object -First 1
-
           if (-not $dumpbin) {
             $dumpbin = Get-ChildItem "$vsInstall\VC\Tools\MSVC\*\bin\Hostx86\x86\dumpbin.exe" -ErrorAction SilentlyContinue |
               Sort-Object FullName -Descending |
               Select-Object -First 1
           }
-
           if (-not $dumpbin) {
             Write-Warning "dumpbin.exe not found; DLL build succeeded, skipping PE inspection."
             exit 0
@@ -102,6 +115,14 @@ jobs:
           Write-Host "Using dumpbin: $($dumpbin.FullName)"
           & $dumpbin.FullName /headers $dll.FullName | Select-String 'machine'
           & $dumpbin.FullName /dependents $dll.FullName
+
+          Write-Host 'CANable driver architecture and exports:'
+          & $dumpbin.FullName /headers $env:CANTACT_DLL | Select-String 'machine'
+          $exports = (& $dumpbin.FullName /exports $env:CANTACT_DLL) -join "`n"
+          Write-Host $exports
+          foreach ($required in @('OpenAdapter','CloseAdapter','ReadAdapter','WriteAdapter','SetAdapterPort','GetAdapterPort')) {
+            if ($exports -notmatch "\b$required\b") { throw "cantact.dll missing export $required" }
+          }
 
       - name: Generate and validate OpenCPN msvc-wx32 tarball
         shell: pwsh
@@ -118,46 +139,29 @@ jobs:
             Where-Object { $_.Name -match 'msvc-wx32' -and $_.Name -match 'x86' } |
             Sort-Object LastWriteTime -Descending |
             Select-Object -First 1
-
-          if (-not $package) {
-            throw 'OpenCPN msvc-wx32 x86 tarball was not produced'
-          }
+          if (-not $package) { throw 'OpenCPN msvc-wx32 x86 tarball was not produced' }
 
           Write-Host "OpenCPN package: $($package.FullName)"
-          Write-Host 'Tarball contents:'
           $entries = & tar -tzf $package.FullName
           $entries | ForEach-Object { Write-Host $_ }
 
-          $hasPlugin = $entries | Where-Object { $_ -match '(^|/)plugins[/\\]twocan_plugin_pi\.dll$' }
-          if (-not $hasPlugin) {
+          if (-not ($entries | Where-Object { $_ -match '(^|/)plugins[/\\]twocan_plugin_pi\.dll$' })) {
             throw 'Tarball does not contain plugins/twocan_plugin_pi.dll'
+          }
+          if (-not ($entries | Where-Object { $_ -match '(^|/)plugins[/\\]twocan_plugin_pi/data/drivers/cantact\.dll$' })) {
+            throw 'Tarball does not contain the rebuilt CANable cantact.dll'
           }
 
           $metadataEntry = $entries | Where-Object { $_ -match '(^|/)metadata\.xml$' } | Select-Object -First 1
-          if (-not $metadataEntry) {
-            throw 'Tarball does not contain top-level metadata.xml required by OpenCPN 5.14'
-          }
+          if (-not $metadataEntry) { throw 'Tarball does not contain top-level metadata.xml required by OpenCPN 5.14' }
 
-          Write-Host "metadata.xml entry: $metadataEntry"
           $metadataText = (& tar -xOzf $package.FullName $metadataEntry) -join "`n"
-          Write-Host 'metadata.xml:'
           Write-Host $metadataText
-
-          if ($metadataText -notmatch '<name>\s*TwoCan Plugin\s*</name>') {
-            throw 'metadata.xml has an unexpected plugin name'
-          }
-          if ($metadataText -notmatch '<version>\s*2\.1\.1\.0\s*</version>') {
-            throw 'metadata.xml has an unexpected plugin version'
-          }
-          if ($metadataText -notmatch '<api-version>\s*1\.16\s*</api-version>') {
-            throw 'metadata.xml must declare OpenCPN API 1.16'
-          }
-          if ($metadataText -notmatch '<target>\s*msvc-wx32\s*</target>') {
-            throw 'metadata.xml must declare target msvc-wx32'
-          }
-          if ($metadataText -notmatch '<target-arch>\s*x86\s*</target-arch>') {
-            throw 'metadata.xml must declare target-arch x86'
-          }
+          if ($metadataText -notmatch '<name>\s*TwoCan Plugin\s*</name>') { throw 'metadata.xml has an unexpected plugin name' }
+          if ($metadataText -notmatch '<version>\s*2\.1\.1\.0\s*</version>') { throw 'metadata.xml has an unexpected plugin version' }
+          if ($metadataText -notmatch '<api-version>\s*1\.16\s*</api-version>') { throw 'metadata.xml must declare OpenCPN API 1.16' }
+          if ($metadataText -notmatch '<target>\s*msvc-wx32\s*</target>') { throw 'metadata.xml must declare target msvc-wx32' }
+          if ($metadataText -notmatch '<target-arch>\s*x86\s*</target-arch>') { throw 'metadata.xml must declare target-arch x86' }
 
           "OPENCPN_TARBALL=$($package.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
@@ -167,88 +171,51 @@ jobs:
           $setup = Join-Path $env:RUNNER_TEMP 'opencpn-5.14.0-setup.exe'
           $extractDir = Join-Path $env:RUNNER_TEMP 'opencpn-5.14.0-extracted'
           $setupUrl = 'https://github.com/OpenCPN/OpenCPN/releases/download/Release_5.14.0/opencpn_5.14.0-0%2B4418.91f3b67_setup.exe'
-          Write-Host "Downloading official OpenCPN 5.14.0 from $setupUrl"
           Invoke-WebRequest $setupUrl -OutFile $setup
 
           if (Test-Path $extractDir) { Remove-Item $extractDir -Recurse -Force }
           New-Item -ItemType Directory -Path $extractDir | Out-Null
-          Write-Host "Extracting official installer without executing it: $extractDir"
           & 7z x -y $setup "-o$extractDir"
-          if ($LASTEXITCODE -ne 0) {
-            throw "7-Zip could not extract the OpenCPN installer (exit $LASTEXITCODE)"
-          }
+          if ($LASTEXITCODE -ne 0) { throw "7-Zip could not extract OpenCPN installer (exit $LASTEXITCODE)" }
 
           $cmd = Get-ChildItem $extractDir -Recurse -Filter 'opencpn-cmd.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $cmd) {
-            Write-Host 'Extracted EXE files:'
-            Get-ChildItem $extractDir -Recurse -Filter '*.exe' -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.FullName }
-            throw 'Extracted official OpenCPN 5.14 installer did not contain opencpn-cmd.exe'
-          }
-
+          if (-not $cmd) { throw 'Extracted official OpenCPN 5.14 installer did not contain opencpn-cmd.exe' }
           $ocpnDir = $cmd.Directory.FullName
-          Write-Host "OpenCPN 5.14 extracted runtime: $ocpnDir"
-          Write-Host "CLI: $($cmd.FullName)"
 
           Push-Location $ocpnDir
           try {
             $abiOutput = & $cmd.FullName print-abi 2>&1
-            $abiExit = $LASTEXITCODE
-            $abiOutput | ForEach-Object { Write-Host $_ }
-            if ($abiExit -ne 0) {
-              throw "opencpn-cmd print-abi failed with exit code $abiExit"
+            if ($LASTEXITCODE -ne 0 -or (($abiOutput -join "`n") -notmatch 'msvc-wx32')) {
+              throw "Official OpenCPN 5.14 ABI check failed: $($abiOutput -join ' ')"
             }
-            if (($abiOutput -join "`n") -notmatch 'msvc-wx32') {
-              throw "Official OpenCPN 5.14 does not report msvc-wx32 ABI: $($abiOutput -join ' ')"
-            }
-
-            Write-Host "Importing $env:OPENCPN_TARBALL using the OpenCPN 5.14 plugin importer..."
             $importOutput = & $cmd.FullName -v import-plugin $env:OPENCPN_TARBALL 2>&1
             $importExit = $LASTEXITCODE
             $importOutput | ForEach-Object { Write-Host $_ }
-            if ($importExit -ne 0) {
-              throw "OpenCPN 5.14 rejected the tarball; opencpn-cmd exit code $importExit"
-            }
+            if ($importExit -ne 0) { throw "OpenCPN 5.14 rejected the tarball; exit $importExit" }
           }
-          finally {
-            Pop-Location
-          }
+          finally { Pop-Location }
 
-          $pluginDll = Get-ChildItem $ocpnDir -Recurse -Filter 'twocan_plugin_pi.dll' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $pluginDll) {
-            $pluginDll = Get-ChildItem $env:APPDATA,$env:LOCALAPPDATA -Recurse -Filter 'twocan_plugin_pi.dll' -ErrorAction SilentlyContinue | Select-Object -First 1
-          }
-          if (-not $pluginDll) {
-            throw 'Tarball import returned success, but installed twocan_plugin_pi.dll was not found'
-          }
-          Write-Host "Imported plugin DLL: $($pluginDll.FullName)"
+          $pluginDll = Get-ChildItem $env:APPDATA,$env:LOCALAPPDATA -Recurse -Filter 'twocan_plugin_pi.dll' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $pluginDll) { throw 'Imported twocan_plugin_pi.dll was not found' }
 
-          # Windows plug-ins import OpenCPN API symbols from a PE module named
-          # opencpn.exe. opencpn-cmd contains the official API shim specifically
-          # for plug-in loading tests. Run a renamed copy so both the API shim
-          # and the imported module name match the production plug-in.
           $runtime = Join-Path $env:RUNNER_TEMP 'opencpn514-cli-runtime'
           if (Test-Path $runtime) { Remove-Item $runtime -Recurse -Force }
           New-Item -ItemType Directory -Path $runtime | Out-Null
           Copy-Item (Join-Path $ocpnDir '*') $runtime -Recurse -Force
           $shimExe = Join-Path $runtime 'opencpn.exe'
-          if (Test-Path $shimExe) {
-            Move-Item $shimExe (Join-Path $runtime 'opencpn-gui.exe') -Force
-          }
+          if (Test-Path $shimExe) { Move-Item $shimExe (Join-Path $runtime 'opencpn-gui.exe') -Force }
           Copy-Item (Join-Path $runtime 'opencpn-cmd.exe') $shimExe -Force
 
           Push-Location $runtime
           try {
-            Write-Host 'Loading TwoCan through the OpenCPN 5.14 API shim...'
             $loadOutput = & $shimExe -v load-plugin $pluginDll.FullName 2>&1
             $loadExit = $LASTEXITCODE
             $loadOutput | ForEach-Object { Write-Host $_ }
             if ($loadExit -ne 0 -or (($loadOutput -join "`n") -notmatch 'File loaded OK')) {
-              throw "TwoCan failed the OpenCPN 5.14 ABI load test (exit $loadExit)"
+              throw "TwoCan failed OpenCPN 5.14 ABI load test (exit $loadExit)"
             }
           }
-          finally {
-            Pop-Location
-          }
+          finally { Pop-Location }
 
           Write-Host 'PASS: OpenCPN 5.14 accepted the tarball and loaded TwoCan without an ABI loader error.'
 
@@ -273,4 +240,8 @@ jobs:
             build/*.tar.gz
             build/CMakeCache.txt
             build/**/*.log
+            build-cantact/**/*.dll
+            build-cantact/**/*.lib
+            build-cantact/**/*.pdb
+            build-cantact/Testing/**
           if-no-files-found: warn
