@@ -5,9 +5,13 @@ on:
   push:
     branches:
       - opencpn-5.14-windows
+      - master
   pull_request:
     branches:
       - master
+
+permissions:
+  contents: write
 
 jobs:
   build-windows:
@@ -76,7 +80,6 @@ jobs:
           if (-not $driver) { throw 'Modern CANable cantact.dll was not produced' }
           Write-Host "Built modern CANable driver: $($driver.FullName)"
 
-          # Replace the 2019 legacy binary before CPack stages data/drivers.
           Copy-Item $driver.FullName 'data/drivers/cantact.dll' -Force
           "CANTACT_DLL=$($driver.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
@@ -227,6 +230,31 @@ jobs:
           path: ${{ env.OPENCPN_TARBALL }}
           if-no-files-found: warn
           compression-level: 0
+
+      - name: Publish GitHub Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: v2.1.1-opencpn514.1
+        run: |
+          if (-not (Test-Path $env:OPENCPN_TARBALL)) {
+            throw 'Validated OpenCPN tarball is missing; refusing to publish release.'
+          }
+
+          gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Release $env:RELEASE_TAG already exists; updating the tarball asset."
+            gh release upload $env:RELEASE_TAG $env:OPENCPN_TARBALL --clobber --repo $env:GITHUB_REPOSITORY
+          } else {
+            Write-Host "Creating release $env:RELEASE_TAG from validated commit $env:GITHUB_SHA"
+            gh release create $env:RELEASE_TAG $env:OPENCPN_TARBALL `
+              --repo $env:GITHUB_REPOSITORY `
+              --target $env:GITHUB_SHA `
+              --title 'TwoCan 2.1.1.0 - OpenCPN 5.14 / CANable V2 Windows' `
+              --notes-file RELEASE_NOTES.md
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub Release publication failed.' }
 
       - name: Upload build tree
         if: always()
