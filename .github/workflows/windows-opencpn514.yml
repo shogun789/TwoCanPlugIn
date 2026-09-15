@@ -139,35 +139,28 @@ jobs:
         shell: pwsh
         run: |
           $setup = Join-Path $env:RUNNER_TEMP 'opencpn-5.14.0-setup.exe'
+          $extractDir = Join-Path $env:RUNNER_TEMP 'opencpn-5.14.0-extracted'
           $setupUrl = 'https://github.com/OpenCPN/OpenCPN/releases/download/Release_5.14.0/opencpn_5.14.0-0%2B4418.91f3b67_setup.exe'
           Write-Host "Downloading official OpenCPN 5.14.0 from $setupUrl"
           Invoke-WebRequest $setupUrl -OutFile $setup
 
-          Write-Host 'Installing OpenCPN 5.14.0 silently...'
-          $installer = Start-Process -FilePath $setup -ArgumentList '/S' -Wait -PassThru
-          if ($installer.ExitCode -ne 0) {
-            throw "OpenCPN installer failed with exit code $($installer.ExitCode)"
+          if (Test-Path $extractDir) { Remove-Item $extractDir -Recurse -Force }
+          New-Item -ItemType Directory -Path $extractDir | Out-Null
+          Write-Host "Extracting official installer without executing it: $extractDir"
+          & 7z x -y $setup "-o$extractDir"
+          if ($LASTEXITCODE -ne 0) {
+            throw "7-Zip could not extract the OpenCPN installer (exit $LASTEXITCODE)"
           }
 
-          $searchRoots = @(
-            "${env:ProgramFiles(x86)}\OpenCPN",
-            "$env:ProgramFiles\OpenCPN"
-          ) | Where-Object { Test-Path $_ }
-
-          $cmd = $null
-          foreach ($root in $searchRoots) {
-            $cmd = Get-ChildItem $root -Recurse -Filter 'opencpn-cmd.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($cmd) { break }
-          }
+          $cmd = Get-ChildItem $extractDir -Recurse -Filter 'opencpn-cmd.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $cmd) {
-            $cmd = Get-ChildItem ${env:ProgramFiles(x86)},$env:ProgramFiles -Recurse -Filter 'opencpn-cmd.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-          }
-          if (-not $cmd) {
-            throw 'Official OpenCPN 5.14 installation did not contain opencpn-cmd.exe'
+            Write-Host 'Extracted EXE files:'
+            Get-ChildItem $extractDir -Recurse -Filter '*.exe' -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.FullName }
+            throw 'Extracted official OpenCPN 5.14 installer did not contain opencpn-cmd.exe'
           }
 
           $ocpnDir = $cmd.Directory.FullName
-          Write-Host "OpenCPN 5.14 runtime: $ocpnDir"
+          Write-Host "OpenCPN 5.14 extracted runtime: $ocpnDir"
           Write-Host "CLI: $($cmd.FullName)"
 
           Push-Location $ocpnDir
@@ -203,24 +196,24 @@ jobs:
           }
           Write-Host "Imported plugin DLL: $($pluginDll.FullName)"
 
-          # On Windows OpenCPN plug-ins import symbols from a module named
-          # opencpn.exe.  The command-line loader contains an API shim expressly
-          # for plug-in loading tests.  Run a copy of opencpn-cmd.exe renamed to
-          # opencpn.exe so the PE import module name also matches.
+          # Windows plug-ins import OpenCPN API symbols from a PE module named
+          # opencpn.exe. opencpn-cmd contains the official API shim specifically
+          # for plug-in loading tests. Run a renamed copy so both the API shim
+          # and the imported module name match the production plug-in.
           $runtime = Join-Path $env:RUNNER_TEMP 'opencpn514-cli-runtime'
           if (Test-Path $runtime) { Remove-Item $runtime -Recurse -Force }
           New-Item -ItemType Directory -Path $runtime | Out-Null
           Copy-Item (Join-Path $ocpnDir '*') $runtime -Recurse -Force
-          $realGui = Join-Path $runtime 'opencpn.exe'
-          if (Test-Path $realGui) {
-            Move-Item $realGui (Join-Path $runtime 'opencpn-gui.exe') -Force
+          $shimExe = Join-Path $runtime 'opencpn.exe'
+          if (Test-Path $shimExe) {
+            Move-Item $shimExe (Join-Path $runtime 'opencpn-gui.exe') -Force
           }
-          Copy-Item (Join-Path $runtime 'opencpn-cmd.exe') $realGui -Force
+          Copy-Item (Join-Path $runtime 'opencpn-cmd.exe') $shimExe -Force
 
           Push-Location $runtime
           try {
             Write-Host 'Loading TwoCan through the OpenCPN 5.14 API shim...'
-            $loadOutput = & $realGui -v load-plugin $pluginDll.FullName 2>&1
+            $loadOutput = & $shimExe -v load-plugin $pluginDll.FullName 2>&1
             $loadExit = $LASTEXITCODE
             $loadOutput | ForEach-Object { Write-Host $_ }
             if ($loadExit -ne 0 -or (($loadOutput -join "`n") -notmatch 'File loaded OK')) {
@@ -234,11 +227,12 @@ jobs:
           Write-Host 'PASS: OpenCPN 5.14 accepted the tarball and loaded TwoCan without an ABI loader error.'
 
       - name: Upload OpenCPN import tarball
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: twocan-opencpn514-msvc-wx32-x86
           path: ${{ env.OPENCPN_TARBALL }}
-          if-no-files-found: error
+          if-no-files-found: warn
           compression-level: 0
 
       - name: Upload build tree
