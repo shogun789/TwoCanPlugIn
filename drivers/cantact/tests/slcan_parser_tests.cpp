@@ -26,7 +26,7 @@ int main() {
     SlcanStreamParser parser;
     std::vector<SlcanFrame> frames;
     const std::string p1 = "T19F112";
-    const std::string p2 = "3408112233";
+    const std::string p2 = "348112233";
     const std::string p3 = "4455667788\r";
     auto out = parser.Feed(p1.data(), p1.size());
     Expect(out.empty(), "partial record produced a frame");
@@ -43,8 +43,8 @@ int main() {
     // Multiple records in one serial read, optional timestamp on the first,
     // CRLF tolerance on the second.
     const std::string multi =
-        "T09F801230211220ABC\r"
-        "T18EEFF0108AABBCCDDEEFF0011\r\n";
+        "T09F80123211220ABC\r"
+        "T18EEFF018AABBCCDDEEFF0011\r\n";
     out = parser.Feed(multi.data(), multi.size());
     Expect(out.size() == 2, "multiple SLCAN records were not parsed");
     Expect(out[0].id == 0x09F80123u && out[0].dlc == 2, "timestamped frame parse failed");
