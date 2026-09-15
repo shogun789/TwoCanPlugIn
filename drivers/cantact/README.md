@@ -2,6 +2,16 @@
 
 This directory contains the replacement `cantact.dll` used by the Windows/OpenCPN 5.14 build.
 
+## Authorship and license
+
+The original TwoCan CANtact Windows driver was written by **Steven Adler / TwoCanPlugIn** and is available in the upstream driver repository:
+
+https://github.com/TwoCanPlugIn/TwoCanPluginDrivers/tree/1bdbf59538e9f58e0297ba0e393165aec12f38bb/Cantact
+
+The implementation in this directory was added for the `shogun789/TwoCanPlugIn` compatibility fork on **2026-09-15**. It preserves the original TwoCan driver ABI while replacing the old serial implementation for Windows 11/CANable V2.0. It is distributed under **GPL-3.0-or-later**, consistent with the original TwoCan driver license.
+
+The original author's work and this fork's modifications are deliberately distinguished; the fork does not claim authorship of the original TwoCan/CANtact implementation. See the repository root `COPYING` and `THIRD_PARTY_NOTICES.md`.
+
 ## Supported adapters
 
 - CANable V2.0 USB CDC/SLCAN: VID `16D0`, PID `117E`
