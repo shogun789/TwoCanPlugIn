@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plugin version="1">
+  <name> TwoCan Plugin </name>
+  <version> @PACKAGE_VERSION@ </version>
+  <release> @VERSION_TWEAK@ </release>
+  <summary> @SHORT_DESCRIPTION@ </summary>
+
+  <api-version> @OCPN_API_VERSION_MAJOR@.@OCPN_API_VERSION_MINOR@ </api-version>
+  <open-source> yes </open-source>
+  <author> @PACKAGE_CONTACT@ </author>
+  <source> https://github.com/TwoCanPlugIn/TwoCanPlugIn </source>
+  <info-url> @XML_INFO_URL@ </info-url>
+
+  <description> @LONG_DESCRIPTION@ </description>
+
+  <target>@PKG_TARGET@</target>
+  <build-target>msvc</build-target>
+  <build-gtk></build-gtk>
+  <target-version>@PKG_TARGET_VERSION@</target-version>
+  <target-arch>@ARCH@</target-arch>
+  <tarball-url></tarball-url>
+</plugin>
