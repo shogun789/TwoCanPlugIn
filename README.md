@@ -2,6 +2,18 @@
 
 This repository is a compatibility-focused fork of the original [TwoCanPlugIn](https://github.com/TwoCanPlugIn/TwoCanPlugIn). It keeps the existing TwoCan NMEA 2000 functionality while updating the Windows build, packaging and CANable support for current OpenCPN.
 
+## Authors and attribution
+
+**TwoCan was originally created and maintained by Steven Adler / TwoCanPlugIn.** The original copyright, ownership and GPL notices remain in the upstream source files and are intentionally preserved in this fork.
+
+- Original project: https://github.com/TwoCanPlugIn/TwoCanPlugIn
+- Original author/maintainer: **Steven Adler / TwoCanPlugIn**
+- Original source contact: `twocanplugin@hotmail.com`
+- Upstream baseline for this compatibility fork: `2e36d999566e84ea66497d5585a70b89af53f9b1`
+- OpenCPN 5.14 / Windows 11 / CANable V2 compatibility work: `shogun789/TwoCanPlugIn`, 2026
+
+The fork-specific work is not presented as authorship of the original TwoCan project. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for component-level attribution and source provenance.
+
 ## Current Windows status
 
 The fork is built and tested in GitHub Actions against the official OpenCPN 5.14.0 Windows runtime.
@@ -27,7 +39,7 @@ The CI pipeline verifies that the generated tarball can be imported by OpenCPN 5
 
 ## CANable V2.0 on Windows 11
 
-The Windows CANable driver in this fork was rewritten for modern CANable V2.0 devices.
+The Windows CANable driver in this fork was rewritten for modern CANable V2.0 devices while preserving the TwoCan driver interface.
 
 Supported behaviour:
 
@@ -78,23 +90,29 @@ The Windows workflow performs the following checks on every compatibility-branch
 2. build and unit-test the rewritten CANable SLCAN driver;
 3. inspect plugin and driver PE architecture/exports with `dumpbin`;
 4. generate a `msvc-wx32` OpenCPN tarball;
-5. validate `metadata.xml` and packaged `cantact.dll`;
+5. validate `metadata.xml`, `COPYING`, `THIRD_PARTY_NOTICES.md` and packaged `cantact.dll`;
 6. import the tarball with the official OpenCPN 5.14 command-line importer;
 7. load the plugin through the OpenCPN 5.14 API shim to detect ABI problems;
 8. publish the package as a GitHub Actions artifact.
 
-The release workflow additionally attaches the validated tarball to the GitHub Release when `master` is updated.
+The release workflow additionally attaches the validated tarball and a pinned upstream legacy-driver source snapshot to the GitHub Release when `master` is updated.
+
+## Legacy Windows drivers
+
+The historical Windows driver DLLs are intentionally retained so the fork does not remove functionality present upstream. Apart from `cantact.dll`, which is replaced at build time by the new source-built CANable V2 driver, the DLLs in `data/drivers` are unchanged from the upstream TwoCan baseline identified above.
+
+Their provenance and the pinned upstream driver-source repository are documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Changes in this fork
 
 See [CHANGELOG.md](CHANGELOG.md). Release-specific notes are in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
-## Upstream
+## License and corresponding source
 
-Original project: https://github.com/TwoCanPlugIn/TwoCanPlugIn
+The original TwoCan source files and the fork-specific TwoCan modifications are distributed under **GNU GPL version 3 or later (`GPL-3.0-or-later`)**. The complete GPLv3 license text is provided in [COPYING](COPYING).
 
-This fork is intended to preserve the original work while making a current Windows/OpenCPN 5.14 build available.
+Some bundled source components retain their own compatible original notices, including OpenCPN API/NMEA 0183 code and wxJSON. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); the original per-file notices remain authoritative.
 
-## License
+For binary GitHub Releases, the corresponding source for the fork is the source archive of the **same release tag**. The release also provides or identifies source for the retained legacy Windows drivers. No warranty is provided, as described by the applicable licenses.
 
-TwoCan is licensed under GPL-3.0-or-later. NMEA 2000® is a registered trademark of the National Marine Electronics Association.
+`NMEA 2000®` is a registered trademark of the National Marine Electronics Association.
