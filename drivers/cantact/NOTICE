@@ -1,0 +1,19 @@
+TwoCan CANable/CANtact Windows driver notice
+============================================
+
+Original TwoCan CANtact driver:
+  Author: Steven Adler / TwoCanPlugIn
+  Original source: https://github.com/TwoCanPlugIn/TwoCanPluginDrivers
+  License: GNU GPL version 3 or later
+
+Fork modification:
+  Repository: https://github.com/shogun789/TwoCanPlugIn
+  Date: 2026-09-15
+  Change: Windows 11 / CANable V2.0 implementation, including VID/PID
+          detection, COM10+ support, explicit serial configuration,
+          streaming SLCAN parsing and receive queuing.
+  License: GPL-3.0-or-later
+
+This notice preserves the distinction between the original TwoCan work and
+the later compatibility work. The full GPLv3 text is in ../../COPYING and
+additional attribution is in ../../THIRD_PARTY_NOTICES.md.
