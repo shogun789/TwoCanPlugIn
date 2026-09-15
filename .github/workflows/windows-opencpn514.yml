@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - opencpn-5.14-windows
+      - license-cleanup
       - master
   pull_request:
     branches:
@@ -155,6 +156,25 @@ jobs:
             throw 'Tarball does not contain the rebuilt CANable cantact.dll'
           }
 
+          # Preserve the historical Windows interfaces from upstream rather than
+          # reducing functionality during the licensing/attribution cleanup.
+          $legacyDrivers = @(
+            'axiomtek.dll',
+            'candumplog.dll',
+            'filedevice.dll',
+            'keeslog.dll',
+            'kvaser.dll',
+            'pcap.dll',
+            'RusokuToucanMarine_v_0_1.dll',
+            'yachtdeviceslog.dll'
+          )
+          foreach ($legacyDriver in $legacyDrivers) {
+            $pattern = '(^|/)plugins[/\\]twocan_plugin_pi/data/drivers/' + [regex]::Escape($legacyDriver) + '$'
+            if (-not ($entries | Where-Object { $_ -match $pattern })) {
+              throw "Tarball lost legacy upstream functionality: missing $legacyDriver"
+            }
+          }
+
           $metadataEntry = $entries | Where-Object { $_ -match '(^|/)metadata\.xml$' } | Select-Object -First 1
           if (-not $metadataEntry) { throw 'Tarball does not contain top-level metadata.xml required by OpenCPN 5.14' }
 
@@ -165,6 +185,27 @@ jobs:
           if ($metadataText -notmatch '<api-version>\s*1\.16\s*</api-version>') { throw 'metadata.xml must declare OpenCPN API 1.16' }
           if ($metadataText -notmatch '<target>\s*msvc-wx32\s*</target>') { throw 'metadata.xml must declare target msvc-wx32' }
           if ($metadataText -notmatch '<target-arch>\s*x86\s*</target-arch>') { throw 'metadata.xml must declare target-arch x86' }
+          if ($metadataText -notmatch 'Steven Adler') { throw 'metadata.xml must preserve original TwoCan author attribution' }
+
+          $copyingEntry = $entries | Where-Object { $_ -match '(^|/)COPYING$' } | Select-Object -First 1
+          $noticesEntry = $entries | Where-Object { $_ -match '(^|/)THIRD_PARTY_NOTICES\.md$' } | Select-Object -First 1
+          $modificationsEntry = $entries | Where-Object { $_ -match '(^|/)MODIFICATIONS\.md$' } | Select-Object -First 1
+          if (-not $copyingEntry) { throw 'Tarball does not contain the full GPL license as COPYING' }
+          if (-not $noticesEntry) { throw 'Tarball does not contain THIRD_PARTY_NOTICES.md' }
+          if (-not $modificationsEntry) { throw 'Tarball does not contain MODIFICATIONS.md' }
+
+          $copyingText = (& tar -xOzf $package.FullName $copyingEntry) -join "`n"
+          $noticesText = (& tar -xOzf $package.FullName $noticesEntry) -join "`n"
+          $modificationsText = (& tar -xOzf $package.FullName $modificationsEntry) -join "`n"
+          if ($copyingText -notmatch 'GNU GENERAL PUBLIC LICENSE' -or $copyingText -notmatch 'Version 3, 29 June 2007') {
+            throw 'COPYING does not contain the expected unmodified GPLv3 text'
+          }
+          if ($noticesText -notmatch 'Steven Adler' -or $noticesText -notmatch '2e36d999566e84ea66497d5585a70b89af53f9b1') {
+            throw 'Third-party notices do not contain the required upstream attribution/provenance'
+          }
+          if ($modificationsText -notmatch '2026-09-15' -or $modificationsText -notmatch 'modified') {
+            throw 'MODIFICATIONS.md does not clearly state the fork modification date/status'
+          }
 
           "OPENCPN_TARBALL=$($package.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
@@ -231,24 +272,43 @@ jobs:
           if-no-files-found: warn
           compression-level: 0
 
+      - name: Prepare pinned legacy-driver source snapshot
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        shell: pwsh
+        env:
+          LEGACY_DRIVERS_COMMIT: 1bdbf59538e9f58e0297ba0e393165aec12f38bb
+        run: |
+          $sourceName = "TwoCanPluginDrivers-source-$env:LEGACY_DRIVERS_COMMIT.tar.gz"
+          $sourcePath = Join-Path $env:RUNNER_TEMP $sourceName
+          $sourceUrl = "https://github.com/TwoCanPlugIn/TwoCanPluginDrivers/archive/$env:LEGACY_DRIVERS_COMMIT.tar.gz"
+          Write-Host "Downloading pinned upstream driver sources: $sourceUrl"
+          Invoke-WebRequest $sourceUrl -OutFile $sourcePath
+          if (-not (Test-Path $sourcePath) -or (Get-Item $sourcePath).Length -lt 1000) {
+            throw 'Pinned TwoCanPluginDrivers source snapshot was not downloaded correctly'
+          }
+          "LEGACY_DRIVER_SOURCE=$sourcePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Publish GitHub Release
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: v2.1.1-opencpn514.1
+          RELEASE_TAG: v2.1.1-opencpn514.2
         run: |
           if (-not (Test-Path $env:OPENCPN_TARBALL)) {
             throw 'Validated OpenCPN tarball is missing; refusing to publish release.'
           }
+          if (-not (Test-Path $env:LEGACY_DRIVER_SOURCE)) {
+            throw 'Pinned legacy-driver source archive is missing; refusing to publish release.'
+          }
 
           gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
-            Write-Host "Release $env:RELEASE_TAG already exists; updating the tarball asset."
-            gh release upload $env:RELEASE_TAG $env:OPENCPN_TARBALL --clobber --repo $env:GITHUB_REPOSITORY
+            Write-Host "Release $env:RELEASE_TAG already exists; updating validated assets."
+            gh release upload $env:RELEASE_TAG $env:OPENCPN_TARBALL $env:LEGACY_DRIVER_SOURCE --clobber --repo $env:GITHUB_REPOSITORY
           } else {
             Write-Host "Creating release $env:RELEASE_TAG from validated commit $env:GITHUB_SHA"
-            gh release create $env:RELEASE_TAG $env:OPENCPN_TARBALL `
+            gh release create $env:RELEASE_TAG $env:OPENCPN_TARBALL $env:LEGACY_DRIVER_SOURCE `
               --repo $env:GITHUB_REPOSITORY `
               --target $env:GITHUB_SHA `
               --title 'TwoCan 2.1.1.0 - OpenCPN 5.14 / CANable V2 Windows' `
