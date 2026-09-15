@@ -1,0 +1,77 @@
+name: Windows OpenCPN 5.14 port
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - opencpn-5.14-windows
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    env:
+      WX_VERSION: 3.2.6
+      WXWIN: ${{ github.workspace }}\cache\wxWidgets
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Patch legacy ABI tag for build probe
+        shell: pwsh
+        run: |
+          $path = 'cmake/PluginSetup.cmake'
+          $text = Get-Content $path -Raw
+          $text = $text.Replace('set(PKG_TARGET "msvc")', 'set(PKG_TARGET "msvc-wx32")')
+          Set-Content -Path $path -Value $text -Encoding utf8
+
+      - name: Download wxWidgets 3.2.6 Win32
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:WXWIN" | Out-Null
+          $base = "https://github.com/wxWidgets/wxWidgets/releases/download/v$env:WX_VERSION"
+          Invoke-WebRequest "$base/wxWidgets-$env:WX_VERSION-headers.7z" -OutFile wx-headers.7z
+          Invoke-WebRequest "$base/wxMSW-$env:WX_VERSION`_vc14x_Dev.7z" -OutFile wx-dev.7z
+          Invoke-WebRequest "$base/wxMSW-$env:WX_VERSION`_vc14x_ReleaseDLL.7z" -OutFile wx-dll.7z
+          7z x -y wx-headers.7z "-o$env:WXWIN"
+          7z x -y wx-dev.7z "-o$env:WXWIN"
+          7z x -y wx-dll.7z "-o$env:WXWIN"
+          Get-ChildItem "$env:WXWIN\lib"
+
+      - name: Configure VS2022 Win32
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A Win32 `
+            -DwxWidgets_ROOT_DIR="$env:WXWIN" `
+            -DwxWidgets_LIB_DIR="$env:WXWIN\lib\vc14x_dll" `
+            -DwxWidgets_CONFIGURATION=mswu `
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build plugin DLL
+        shell: pwsh
+        run: cmake --build build --config Release --parallel
+
+      - name: Show DLL dependencies
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem build -Recurse -Filter '*twocan*.dll' | Select-Object -First 1
+          if (-not $dll) { throw 'TwoCan DLL was not produced' }
+          Write-Host "Built: $($dll.FullName)"
+          dumpbin /headers $dll.FullName | Select-String 'machine'
+          dumpbin /dependents $dll.FullName
+
+      - name: Upload build tree
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twocan-windows-build
+          path: |
+            build/**/*.dll
+            build/**/*.lib
+            build/**/*.pdb
+            build/CMakeCache.txt
+            build/**/*.log
+          if-no-files-found: warn
