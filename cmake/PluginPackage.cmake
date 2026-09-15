@@ -156,8 +156,25 @@ if(NOT STANDALONE MATCHES "BUNDLED")
             DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${CPACK_PACKAGE_FILE_NAME})
     endif(WIN32)
 
-    message(STATUS "${CMLOC}CPACK_PACKAGE_VERSION: ${CPACK_PACKAGE_VERSION}, PACKAGE_VERSION ${PACKAGE_VERSION}, CPACK_PACKAGE_FILE_NAME: ${CPACK_PACKAGE_FILE_NAME}")
+    # OpenCPN 5.14 manual tarball import requires metadata.xml inside the
+    # top-level directory of the archive.  Legacy TwoCan packaging predates
+    # this requirement, so generate metadata from the same build variables
+    # that define the DLL ABI and install it as part of the CPack payload.
+    if(WIN32)
+        if(NOT EXISTS "${PROJECT_SOURCE_DIR}/plugin.xml.in")
+            message(FATAL_ERROR "${CMLOC}plugin.xml.in is required for OpenCPN plugin tarballs")
+        endif()
+        configure_file(
+            "${PROJECT_SOURCE_DIR}/plugin.xml.in"
+            "${CMAKE_CURRENT_BINARY_DIR}/metadata.xml"
+            @ONLY)
+        install(
+            FILES "${CMAKE_CURRENT_BINARY_DIR}/metadata.xml"
+            DESTINATION ".")
+        message(STATUS "${CMLOC}Including metadata.xml for ${PKG_TARGET}/${ARCH}")
+    endif(WIN32)
 
+    message(STATUS "${CMLOC}CPACK_PACKAGE_VERSION: ${CPACK_PACKAGE_VERSION}, PACKAGE_VERSION ${PACKAGE_VERSION}, CPACK_PACKAGE_FILE_NAME: ${CPACK_PACKAGE_FILE_NAME}")
 
     set(CPACK_PROJECT_CONFIG_FILE "${CMAKE_CURRENT_BINARY_DIR}/PluginCPackOptions.cmake")
     message(STATUS "${CMLOC}PROJECT_SOURCE_DIR: ${PROJECT_SOURCE_DIR}, CPACK_PROJECT_CONFIG_FILE: ${CPACK_PROJECT_CONFIG_FILE}")
