@@ -103,6 +103,46 @@ jobs:
           & $dumpbin.FullName /headers $dll.FullName | Select-String 'machine'
           & $dumpbin.FullName /dependents $dll.FullName
 
+      - name: Generate OpenCPN msvc-wx32 tarball
+        shell: pwsh
+        run: |
+          Push-Location build
+          try {
+            cpack -G TGZ -C Release --config CPackConfig.cmake
+          }
+          finally {
+            Pop-Location
+          }
+
+          $package = Get-ChildItem build -File -Filter '*.tar.gz' |
+            Where-Object { $_.Name -match 'msvc-wx32' -and $_.Name -match 'x86' } |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+
+          if (-not $package) {
+            throw 'OpenCPN msvc-wx32 x86 tarball was not produced'
+          }
+
+          Write-Host "OpenCPN package: $($package.FullName)"
+          Write-Host 'Tarball contents:'
+          $entries = & tar -tzf $package.FullName
+          $entries | ForEach-Object { Write-Host $_ }
+
+          $hasPlugin = $entries | Where-Object { $_ -match '(^|/)plugins[/\\]twocan_plugin_pi\.dll$' }
+          if (-not $hasPlugin) {
+            throw 'Tarball does not contain plugins/twocan_plugin_pi.dll'
+          }
+
+          "OPENCPN_TARBALL=$($package.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Upload OpenCPN import tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: twocan-opencpn514-msvc-wx32-x86
+          path: ${{ env.OPENCPN_TARBALL }}
+          if-no-files-found: error
+          compression-level: 0
+
       - name: Upload build tree
         if: always()
         uses: actions/upload-artifact@v4
@@ -112,6 +152,7 @@ jobs:
             build/**/*.dll
             build/**/*.lib
             build/**/*.pdb
+            build/*.tar.gz
             build/CMakeCache.txt
             build/**/*.log
           if-no-files-found: warn
