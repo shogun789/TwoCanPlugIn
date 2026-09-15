@@ -20,13 +20,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Patch legacy ABI tag for build probe
+      - name: Patch legacy Windows build metadata for probe
         shell: pwsh
         run: |
           $path = 'cmake/PluginSetup.cmake'
           $text = Get-Content $path -Raw
           $text = $text.Replace('set(PKG_TARGET "msvc")', 'set(PKG_TARGET "msvc-wx32")')
+          $text = $text -replace 'else\(NOT WIN32 AND NOT QT_ANDROID\)\s+set\(ARCH "x86_64"\)', "else(NOT WIN32 AND NOT QT_ANDROID)`n    set(ARCH `"x86`")"
           Set-Content -Path $path -Value $text -Encoding utf8
+
+      - name: Install gettext tools
+        shell: pwsh
+        run: |
+          choco install gettext -y --no-progress
+          $env:PATH = "C:\ProgramData\chocolatey\bin;$env:PATH"
+          Get-Command msgfmt
+          Get-Command msgmerge
 
       - name: Download wxWidgets 3.2.6 Win32
         shell: pwsh
