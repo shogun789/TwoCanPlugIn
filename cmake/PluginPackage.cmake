@@ -1,6 +1,9 @@
 # ---------------------------------------------------------------------------
 # Author:      Pavel Kalian (Based on the work of Sean D'Epagnier) Copyright:   2014 License:     GPLv3+
 # ---------------------------------------------------------------------------
+# Modified 2026-09-15 by the shogun789/TwoCanPlugIn compatibility fork:
+# add OpenCPN 5.14 metadata and package licensing/attribution files.
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 set(SAVE_CMLOC ${CMLOC})
 set(CMLOC "PluginPackage: ")
@@ -73,7 +76,7 @@ else(CMAKE_BUILD_TYPE STREQUAL "DEBUG")
     message(STATUS "${CMLOC}Stripping debug information from module")
 endif(CMAKE_BUILD_TYPE STREQUAL "Debug")
 
-set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/gpl.txt")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/COPYING")
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/README")
     message(STATUS "${CMLOC}Using generic cpack package description file.")
@@ -113,7 +116,7 @@ if(NOT STANDALONE MATCHES "BUNDLED")
 
         # Copy a bunch of files so the Packages installer builder can find them relative to ${CMAKE_CURRENT_BINARY_DIR} This avoids absolute paths in the chartdldr_pi.pkgproj file
 
-        configure_file(${PROJECT_SOURCE_DIR}/cmake/gpl.txt ${CMAKE_CURRENT_BINARY_DIR}/license.txt COPYONLY)
+        configure_file(${PROJECT_SOURCE_DIR}/COPYING ${CMAKE_CURRENT_BINARY_DIR}/license.txt COPYONLY)
 
         configure_file(${PROJECT_SOURCE_DIR}/buildosx/InstallOSX/pkg_background.jpg ${CMAKE_CURRENT_BINARY_DIR}/pkg_background.jpg COPYONLY)
 
@@ -157,21 +160,31 @@ if(NOT STANDALONE MATCHES "BUNDLED")
     endif(WIN32)
 
     # OpenCPN 5.14 manual tarball import requires metadata.xml inside the
-    # top-level directory of the archive.  Legacy TwoCan packaging predates
+    # top-level directory of the archive. Legacy TwoCan packaging predates
     # this requirement, so generate metadata from the same build variables
     # that define the DLL ABI and install it as part of the CPack payload.
+    # Include the complete GPL text and attribution/provenance next to it.
     if(WIN32)
         if(NOT EXISTS "${PROJECT_SOURCE_DIR}/plugin.xml.in")
             message(FATAL_ERROR "${CMLOC}plugin.xml.in is required for OpenCPN plugin tarballs")
+        endif()
+        if(NOT EXISTS "${PROJECT_SOURCE_DIR}/COPYING")
+            message(FATAL_ERROR "${CMLOC}COPYING is required for distributable OpenCPN plugin tarballs")
+        endif()
+        if(NOT EXISTS "${PROJECT_SOURCE_DIR}/THIRD_PARTY_NOTICES.md")
+            message(FATAL_ERROR "${CMLOC}THIRD_PARTY_NOTICES.md is required for distributable OpenCPN plugin tarballs")
         endif()
         configure_file(
             "${PROJECT_SOURCE_DIR}/plugin.xml.in"
             "${CMAKE_CURRENT_BINARY_DIR}/metadata.xml"
             @ONLY)
         install(
-            FILES "${CMAKE_CURRENT_BINARY_DIR}/metadata.xml"
+            FILES
+                "${CMAKE_CURRENT_BINARY_DIR}/metadata.xml"
+                "${PROJECT_SOURCE_DIR}/COPYING"
+                "${PROJECT_SOURCE_DIR}/THIRD_PARTY_NOTICES.md"
             DESTINATION ".")
-        message(STATUS "${CMLOC}Including metadata.xml for ${PKG_TARGET}/${ARCH}")
+        message(STATUS "${CMLOC}Including metadata.xml, COPYING and THIRD_PARTY_NOTICES.md for ${PKG_TARGET}/${ARCH}")
     endif(WIN32)
 
     message(STATUS "${CMLOC}CPACK_PACKAGE_VERSION: ${CPACK_PACKAGE_VERSION}, PACKAGE_VERSION ${PACKAGE_VERSION}, CPACK_PACKAGE_FILE_NAME: ${CPACK_PACKAGE_FILE_NAME}")
