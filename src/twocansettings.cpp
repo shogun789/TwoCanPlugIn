@@ -40,6 +40,334 @@
 
 #include "twocansettings.h"
 
+#if defined (__WXMSW__)
+#include <wx/combobox.h>
+#include <wx/statbox.h>
+#include <wx/stattext.h>
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <setupapi.h>
+#include <devguid.h>
+
+#include <algorithm>
+#include <vector>
+
+#pragma comment(lib, "setupapi.lib")
+#pragma comment(lib, "advapi32.lib")
+
+namespace {
+
+const wxString kCanableAutoLabel = _T("Automatic (detect CANable V2.0)");
+const wxString kCanableComboName = _T("TwoCanCanablePort");
+const wxString kCanableStatusName = _T("TwoCanCanableStatus");
+const wxString kCanableRefreshName = _T("TwoCanCanableRefresh");
+const wchar_t kCanableVidPid[] = L"VID_16D0&PID_117E";
+const wchar_t kCanableRegistryKey[] = L"Software\\TwoCan\\CANable";
+const wchar_t kCanableRegistryValue[] = L"ComPort";
+const wchar_t kCanableEnvironment[] = L"TWOCAN_CANABLE_COM";
+
+struct ComPortEntry {
+	wxString port;
+	wxString friendlyName;
+	bool canable;
+};
+
+wxString NormalizeComPortName(wxString value) {
+	value.Trim(true);
+	value.Trim(false);
+	value.MakeUpper();
+
+	if (value.StartsWith(_T("\\\\.\\"))) {
+		value = value.Mid(4);
+	}
+	if (value.EndsWith(_T(":"))) {
+		value.RemoveLast();
+	}
+	if (!value.StartsWith(_T("COM")) || value.Length() < 4) {
+		return wxEmptyString;
+	}
+
+	unsigned long portNumber = 0;
+	if (!value.Mid(3).ToULong(&portNumber) || portNumber == 0 || portNumber > 4096) {
+		return wxEmptyString;
+	}
+	return wxString::Format(_T("COM%lu"), portNumber);
+}
+
+unsigned long ComPortNumber(const wxString& port) {
+	unsigned long result = 0;
+	NormalizeComPortName(port).Mid(3).ToULong(&result);
+	return result;
+}
+
+bool MultiSzContainsCanable(const wchar_t* values) {
+	if (!values) return false;
+	for (const wchar_t* p = values; *p; p += wcslen(p) + 1) {
+		wxString id(p);
+		id.MakeUpper();
+		if (id.Contains(kCanableVidPid)) return true;
+	}
+	return false;
+}
+
+bool ReadPortName(HDEVINFO deviceInfoSet, SP_DEVINFO_DATA* deviceInfo, wxString* port) {
+	if (!port) return false;
+	HKEY key = SetupDiOpenDevRegKey(deviceInfoSet, deviceInfo, DICS_FLAG_GLOBAL, 0, DIREG_DEV, KEY_READ);
+	if (key == INVALID_HANDLE_VALUE) return false;
+
+	wchar_t value[128] = {};
+	DWORD type = 0;
+	DWORD size = sizeof(value);
+	const LONG rc = RegQueryValueExW(key, L"PortName", nullptr, &type,
+		reinterpret_cast<LPBYTE>(value), &size);
+	RegCloseKey(key);
+	if (rc != ERROR_SUCCESS || (type != REG_SZ && type != REG_EXPAND_SZ)) return false;
+
+	const wxString normalized = NormalizeComPortName(wxString(value));
+	if (normalized.IsEmpty()) return false;
+	*port = normalized;
+	return true;
+}
+
+wxString ReadFriendlyName(HDEVINFO deviceInfoSet, SP_DEVINFO_DATA* deviceInfo) {
+	wchar_t value[512] = {};
+	DWORD type = 0;
+	DWORD required = 0;
+	if (SetupDiGetDeviceRegistryPropertyW(deviceInfoSet, deviceInfo, SPDRP_FRIENDLYNAME,
+		&type, reinterpret_cast<PBYTE>(value), sizeof(value), &required)) {
+		return wxString(value);
+	}
+	if (SetupDiGetDeviceRegistryPropertyW(deviceInfoSet, deviceInfo, SPDRP_DEVICEDESC,
+		&type, reinterpret_cast<PBYTE>(value), sizeof(value), &required)) {
+		return wxString(value);
+	}
+	return wxEmptyString;
+}
+
+std::vector<ComPortEntry> EnumerateComPorts() {
+	std::vector<ComPortEntry> result;
+	HDEVINFO devices = SetupDiGetClassDevsW(&GUID_DEVCLASS_PORTS, nullptr, nullptr, DIGCF_PRESENT);
+	if (devices == INVALID_HANDLE_VALUE) return result;
+
+	SP_DEVINFO_DATA deviceInfo = {};
+	deviceInfo.cbSize = sizeof(deviceInfo);
+	for (DWORD index = 0; SetupDiEnumDeviceInfo(devices, index, &deviceInfo); ++index) {
+		wxString port;
+		if (!ReadPortName(devices, &deviceInfo, &port)) continue;
+
+		wchar_t hardwareIds[4096] = {};
+		DWORD type = 0;
+		DWORD required = 0;
+		bool isCanable = false;
+		if (SetupDiGetDeviceRegistryPropertyW(devices, &deviceInfo, SPDRP_HARDWAREID,
+			&type, reinterpret_cast<PBYTE>(hardwareIds), sizeof(hardwareIds), &required)) {
+			isCanable = MultiSzContainsCanable(hardwareIds);
+		}
+
+		ComPortEntry entry;
+		entry.port = port;
+		entry.friendlyName = ReadFriendlyName(devices, &deviceInfo);
+		entry.canable = isCanable;
+		result.push_back(entry);
+	}
+	SetupDiDestroyDeviceInfoList(devices);
+
+	std::sort(result.begin(), result.end(), [](const ComPortEntry& a, const ComPortEntry& b) {
+		return ComPortNumber(a.port) < ComPortNumber(b.port);
+	});
+	return result;
+}
+
+wxString CanableIniPath() {
+	return pluginDataFolder + _T("drivers") + wxFileName::GetPathSeparator() + _T("cantact.ini");
+}
+
+wxString ReadPersistedCanablePort() {
+	wchar_t value[128] = {};
+	DWORD count = GetEnvironmentVariableW(kCanableEnvironment, value, _countof(value));
+	if (count > 0 && count < _countof(value)) {
+		const wxString normalized = NormalizeComPortName(wxString(value));
+		if (!normalized.IsEmpty()) return normalized;
+	}
+
+	const wxString iniPath = CanableIniPath();
+	value[0] = 0;
+	GetPrivateProfileStringW(L"CANable", L"ComPort", L"", value, _countof(value), iniPath.wc_str());
+	wxString normalized = NormalizeComPortName(wxString(value));
+	if (!normalized.IsEmpty()) return normalized;
+
+	HKEY key = nullptr;
+	if (RegOpenKeyExW(HKEY_CURRENT_USER, kCanableRegistryKey, 0, KEY_READ, &key) == ERROR_SUCCESS) {
+		DWORD type = 0;
+		DWORD size = sizeof(value);
+		value[0] = 0;
+		if (RegQueryValueExW(key, kCanableRegistryValue, nullptr, &type,
+			reinterpret_cast<LPBYTE>(value), &size) == ERROR_SUCCESS && type == REG_SZ) {
+			normalized = NormalizeComPortName(wxString(value));
+		}
+		RegCloseKey(key);
+		if (!normalized.IsEmpty()) return normalized;
+	}
+	return wxEmptyString;
+}
+
+wxComboBox* FindCanableCombo(wxWindow* root) {
+	return wxDynamicCast(wxWindow::FindWindowByName(kCanableComboName, root), wxComboBox);
+}
+
+wxStaticText* FindCanableStatus(wxWindow* root) {
+	return wxDynamicCast(wxWindow::FindWindowByName(kCanableStatusName, root), wxStaticText);
+}
+
+wxButton* FindCanableRefresh(wxWindow* root) {
+	return wxDynamicCast(wxWindow::FindWindowByName(kCanableRefreshName, root), wxButton);
+}
+
+wxString PortFromComboValue(wxString value) {
+	value.Trim(true);
+	value.Trim(false);
+	if (value.StartsWith(_T("Automatic"))) return wxEmptyString;
+
+	const int separator = value.Find(_T(' '));
+	if (separator != wxNOT_FOUND) value = value.Left(separator);
+	return NormalizeComPortName(value);
+}
+
+void PopulateCanablePorts(wxComboBox* combo, wxStaticText* status) {
+	if (!combo || !status) return;
+	const wxString configured = ReadPersistedCanablePort();
+	const std::vector<ComPortEntry> ports = EnumerateComPorts();
+
+	combo->Freeze();
+	combo->Clear();
+	combo->Append(kCanableAutoLabel);
+
+	wxArrayString detectedCanable;
+	wxString configuredLabel;
+	for (const auto& entry : ports) {
+		wxString label = entry.port;
+		if (!entry.friendlyName.IsEmpty()) {
+			label += _T(" — ") + entry.friendlyName;
+		}
+		if (entry.canable) {
+			label += _T(" [CANable V2.0 16D0:117E]");
+			detectedCanable.Add(entry.port);
+		}
+		combo->Append(label);
+		if (!configured.IsEmpty() && configured.CmpNoCase(entry.port) == 0) configuredLabel = label;
+	}
+
+	if (configured.IsEmpty()) {
+		combo->SetValue(kCanableAutoLabel);
+	} else if (!configuredLabel.IsEmpty()) {
+		combo->SetValue(configuredLabel);
+	} else {
+		// Keep an unavailable/manual COM visible and editable.
+		combo->SetValue(configured);
+	}
+	combo->Thaw();
+
+	if (!detectedCanable.IsEmpty()) {
+		status->SetLabel(_T("CANable V2.0 detected automatically on: ") + wxJoin(detectedCanable, ','));
+	} else {
+		status->SetLabel(_T("CANable V2.0 (16D0:117E) not detected. Choose or type a COM port manually."));
+	}
+	status->Wrap(500);
+}
+
+bool IsCanableInterface(const wxString& name) {
+	wxString lower = name.Lower();
+	return lower.Contains(_T("canable")) || lower.Contains(_T("cantact"));
+}
+
+void UpdateCanableUiEnabled(wxWindow* root, const wxString& interfaceName) {
+	const bool enabled = IsCanableInterface(interfaceName);
+	if (FindCanableCombo(root)) FindCanableCombo(root)->Enable(enabled);
+	if (FindCanableRefresh(root)) FindCanableRefresh(root)->Enable(enabled);
+	if (FindCanableStatus(root)) FindCanableStatus(root)->Enable(enabled);
+}
+
+bool PersistCanableSelection(wxWindow* root) {
+	wxComboBox* combo = FindCanableCombo(root);
+	if (!combo) return true;
+
+	const wxString raw = combo->GetValue();
+	const bool automatic = raw.StartsWith(_T("Automatic"));
+	const wxString port = automatic ? wxEmptyString : PortFromComboValue(raw);
+	if (!automatic && port.IsEmpty()) {
+		wxMessageBox(_T("Enter a valid Windows COM port, for example COM7 or COM12."),
+			_T("CANable port"), wxOK | wxICON_WARNING, root);
+		return false;
+	}
+
+	const wxString iniPath = CanableIniPath();
+	if (automatic) {
+		SetEnvironmentVariableW(kCanableEnvironment, nullptr);
+		WritePrivateProfileStringW(L"CANable", L"ComPort", L"", iniPath.wc_str());
+
+		HKEY key = nullptr;
+		if (RegOpenKeyExW(HKEY_CURRENT_USER, kCanableRegistryKey, 0, KEY_SET_VALUE, &key) == ERROR_SUCCESS) {
+			RegDeleteValueW(key, kCanableRegistryValue);
+			RegCloseKey(key);
+		}
+		wxLogMessage(_T("TwoCan Settings, CANable port set to automatic VID/PID detection"));
+	} else {
+		SetEnvironmentVariableW(kCanableEnvironment, port.wc_str());
+		if (!WritePrivateProfileStringW(L"CANable", L"ComPort", port.wc_str(), iniPath.wc_str())) {
+			wxLogError(_T("TwoCan Settings, unable to save CANable COM port to %s"), iniPath);
+			wxMessageBox(_T("Unable to save the CANable COM-port setting."),
+				_T("CANable port"), wxOK | wxICON_ERROR, root);
+			return false;
+		}
+
+		HKEY key = nullptr;
+		if (RegCreateKeyExW(HKEY_CURRENT_USER, kCanableRegistryKey, 0, nullptr, 0,
+			KEY_SET_VALUE, nullptr, &key, nullptr) == ERROR_SUCCESS) {
+			const DWORD bytes = static_cast<DWORD>((port.Length() + 1) * sizeof(wchar_t));
+			RegSetValueExW(key, kCanableRegistryValue, 0, REG_SZ,
+				reinterpret_cast<const BYTE*>(port.wc_str()), bytes);
+			RegCloseKey(key);
+		}
+		wxLogMessage(_T("TwoCan Settings, CANable manual port set to %s"), port);
+	}
+	return true;
+}
+
+void AddCanablePortControls(wxPanel* panelSettings) {
+	if (!panelSettings || !panelSettings->GetSizer()) return;
+
+	wxStaticBoxSizer* portSizer = new wxStaticBoxSizer(
+		new wxStaticBox(panelSettings, wxID_ANY, _T("CANable V2.0 serial port")), wxVERTICAL);
+	wxBoxSizer* row = new wxBoxSizer(wxHORIZONTAL);
+
+	wxComboBox* combo = new wxComboBox(portSizer->GetStaticBox(), wxID_ANY, wxEmptyString,
+		wxDefaultPosition, wxDefaultSize, 0, nullptr, wxCB_DROPDOWN);
+	combo->SetName(kCanableComboName);
+	combo->SetMinSize(wxSize(350, -1));
+	row->Add(combo, 1, wxALL | wxEXPAND, 5);
+
+	wxButton* refresh = new wxButton(portSizer->GetStaticBox(), wxID_ANY, _T("Refresh"));
+	refresh->SetName(kCanableRefreshName);
+	row->Add(refresh, 0, wxALL, 5);
+	portSizer->Add(row, 0, wxEXPAND, 5);
+
+	wxStaticText* status = new wxStaticText(portSizer->GetStaticBox(), wxID_ANY, wxEmptyString);
+	status->SetName(kCanableStatusName);
+	portSizer->Add(status, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 5);
+
+	// Insert directly below the existing NMEA 2000 Interfaces selector.
+	panelSettings->GetSizer()->Insert(1, portSizer, 0, wxEXPAND, 5);
+
+	refresh->Bind(wxEVT_BUTTON, [combo, status](wxCommandEvent&) {
+		PopulateCanablePorts(combo, status);
+	});
+	PopulateCanablePorts(combo, status);
+}
+
+} // namespace
+#endif
+
 // Constructor and destructor implementation
 // inherits froms TwoCanSettingsBase which was implemented using wxFormBuilder
 TwoCanSettings::TwoCanSettings(wxWindow* parent, wxWindowID id, const wxString& title, \
@@ -53,6 +381,10 @@ TwoCanSettings::TwoCanSettings(wxWindow* parent, wxWindowID id, const wxString& 
 	icon.CopyFromBitmap(*_img_Toucan_16);
 	TwoCanSettings::SetIcon(icon);
 	togglePGN = FALSE;
+
+#if defined (__WXMSW__)
+	AddCanablePortControls(panelSettings);
+#endif
 }
 
 TwoCanSettings::~TwoCanSettings() {
@@ -119,6 +451,10 @@ void TwoCanSettings::OnInit(wxInitDialogEvent& event) {
 			cmbInterfaces->SetStringSelection(it->first);
 		}
 	}
+
+#if defined (__WXMSW__)
+	UpdateCanableUiEnabled(this, cmbInterfaces->GetStringSelection());
+#endif
 	
 	// About Tab
 	bmpAbout->SetBitmap(wxBitmap(*_img_Toucan_64));
@@ -224,6 +560,9 @@ void TwoCanSettings::OnInit(wxInitDialogEvent& event) {
 void TwoCanSettings::OnChoiceInterfaces(wxCommandEvent &event) {
 	// BUG BUG should only set the dirty flag if we've actually selected a different driver
 	this->settingsDirty = TRUE;
+#if defined (__WXMSW__)
+	UpdateCanableUiEnabled(this, cmbInterfaces->GetStringSelection());
+#endif
 }
 
 // Select NMEA 2000 parameter group numbers to be converted to their respective NMEA 0183 sentences
@@ -310,6 +649,12 @@ void TwoCanSettings::OnOK(wxCommandEvent &event) {
 	// Disable receiving of NMEA 2000 frames in the debug window, as we'll be closing
 	debugWindowActive = FALSE;
 
+#if defined (__WXMSW__)
+	if (IsCanableInterface(cmbInterfaces->GetStringSelection()) && !PersistCanableSelection(this)) {
+		return;
+	}
+#endif
+
 	// Save the settings
 	if (this->settingsDirty) {
 		SaveSettings();
@@ -327,6 +672,11 @@ void TwoCanSettings::OnOK(wxCommandEvent &event) {
 }
 
 void TwoCanSettings::OnApply(wxCommandEvent &event) {
+#if defined (__WXMSW__)
+	if (IsCanableInterface(cmbInterfaces->GetStringSelection()) && !PersistCanableSelection(this)) {
+		return;
+	}
+#endif
 	// Save the settings
 	if (this->settingsDirty) {
 		SaveSettings();
@@ -522,5 +872,4 @@ void TwoCanSettings::GetDriverInfo(wxString fileName) {
 }
 
 #endif
-
 
