@@ -65,14 +65,43 @@ jobs:
         shell: pwsh
         run: cmake --build build --config Release --parallel
 
-      - name: Show DLL dependencies
+      - name: Inspect DLL with VS2022 dumpbin
         shell: pwsh
         run: |
           $dll = Get-ChildItem build -Recurse -Filter '*twocan*.dll' | Select-Object -First 1
           if (-not $dll) { throw 'TwoCan DLL was not produced' }
           Write-Host "Built: $($dll.FullName)"
-          dumpbin /headers $dll.FullName | Select-String 'machine'
-          dumpbin /dependents $dll.FullName
+
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path $vswhere)) {
+            Write-Warning "vswhere.exe not found; DLL build succeeded, skipping dumpbin inspection."
+            exit 0
+          }
+
+          $vsInstall = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vsInstall) {
+            Write-Warning "Visual Studio C++ tools not found by vswhere; DLL build succeeded, skipping dumpbin inspection."
+            exit 0
+          }
+
+          $dumpbin = Get-ChildItem "$vsInstall\VC\Tools\MSVC\*\bin\Hostx64\x86\dumpbin.exe" -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+
+          if (-not $dumpbin) {
+            $dumpbin = Get-ChildItem "$vsInstall\VC\Tools\MSVC\*\bin\Hostx86\x86\dumpbin.exe" -ErrorAction SilentlyContinue |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1
+          }
+
+          if (-not $dumpbin) {
+            Write-Warning "dumpbin.exe not found; DLL build succeeded, skipping PE inspection."
+            exit 0
+          }
+
+          Write-Host "Using dumpbin: $($dumpbin.FullName)"
+          & $dumpbin.FullName /headers $dll.FullName | Select-String 'machine'
+          & $dumpbin.FullName /dependents $dll.FullName
 
       - name: Upload build tree
         if: always()
