@@ -1,5 +1,9 @@
-# Modern Windows CANable/CANtact SLCAN driver for TwoCan.
+cmake_minimum_required(VERSION 3.20)
+project(twocan_cantact_driver LANGUAGES CXX)
 
+enable_testing()
+
+# Modern Windows CANable/CANtact SLCAN driver for TwoCan.
 add_library(cantact SHARED
     src/cantact_driver.cpp
     src/slcan_parser.cpp
