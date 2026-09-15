@@ -263,7 +263,7 @@ in one of these ways:
     product that is covered by this License, on a durable physical
     medium customarily used for software interchange, for a price no
     more than your reasonable cost of physically performing this
-    conveying, or (2) access to copy the
+    conveying of source, or (2) access to copy the
     Corresponding Source from a network server at no charge.
 
     c) Convey individual copies of the object code with a copy of the
@@ -329,7 +329,7 @@ been installed in ROM).
   The requirement to provide Installation Information does not include a
 requirement to continue to provide support service, warranty, or updates
 for a work that has been modified or installed by the recipient, or for
-the User Product in which the modified object code is installed.  Access to a
+the User Product in which it has been modified or installed.  Access to a
 network may be denied when the modification itself materially and
 adversely affects the operation of the network or violates the rules and
 protocols for communication across the network.
@@ -366,24 +366,24 @@ that material) supplement the terms of this License with terms:
     terms of sections 15 and 16 of this License; or
 
     b) Requiring preservation of specified reasonable legal notices or
-author attributions in that material or in the Appropriate Legal
-Notices displayed by works containing it; or
+    author attributions in that material or in the Appropriate Legal
+    Notices displayed by works containing it; or
 
     c) Prohibiting misrepresentation of the origin of that material, or
     requiring that modified versions of such material be marked in
     reasonable ways as different from the original version; or
 
     d) Limiting the use for publicity purposes of names of licensors or
-authors of the material; or
+    authors of the material; or
 
     e) Declining to grant rights under trademark law for use of some
-trade names, trademarks, or service marks; or
+    trade names, trademarks, or service marks; or
 
     f) Requiring indemnification of licensors and authors of that
-material by anyone who conveys the material (or modified versions of
-it) with contractual assumptions of liability to the recipient, for
-any liability that these contractual assumptions directly impose on
-those licensors and authors.
+    material by anyone who conveys the material (or modified versions of
+    it) with contractual assumptions of liability to the recipient, for
+    any liability that these contractual assumptions directly impose on
+    those licensors and authors.
 
   All other non-permissive additional terms are considered "further
 restrictions" within the meaning of section 10.  If the Program as you
@@ -672,3 +672,4 @@ may consider it more useful to permit linking proprietary applications with
 the library.  If this is what you want to do, use the GNU Lesser General
 Public License instead of this License.  But first, please read
 <https://www.gnu.org/licenses/why-not-lgpl.html>.
+
