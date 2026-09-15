@@ -163,17 +163,17 @@ if(NOT STANDALONE MATCHES "BUNDLED")
     # top-level directory of the archive. Legacy TwoCan packaging predates
     # this requirement, so generate metadata from the same build variables
     # that define the DLL ABI and install it as part of the CPack payload.
-    # Include the complete GPL text and attribution/provenance next to it.
+    # Include the complete GPL text, attribution/provenance and modification
+    # record next to it.
     if(WIN32)
         if(NOT EXISTS "${PROJECT_SOURCE_DIR}/plugin.xml.in")
             message(FATAL_ERROR "${CMLOC}plugin.xml.in is required for OpenCPN plugin tarballs")
         endif()
-        if(NOT EXISTS "${PROJECT_SOURCE_DIR}/COPYING")
-            message(FATAL_ERROR "${CMLOC}COPYING is required for distributable OpenCPN plugin tarballs")
-        endif()
-        if(NOT EXISTS "${PROJECT_SOURCE_DIR}/THIRD_PARTY_NOTICES.md")
-            message(FATAL_ERROR "${CMLOC}THIRD_PARTY_NOTICES.md is required for distributable OpenCPN plugin tarballs")
-        endif()
+        foreach(required_notice COPYING THIRD_PARTY_NOTICES.md MODIFICATIONS.md)
+            if(NOT EXISTS "${PROJECT_SOURCE_DIR}/${required_notice}")
+                message(FATAL_ERROR "${CMLOC}${required_notice} is required for distributable OpenCPN plugin tarballs")
+            endif()
+        endforeach()
         configure_file(
             "${PROJECT_SOURCE_DIR}/plugin.xml.in"
             "${CMAKE_CURRENT_BINARY_DIR}/metadata.xml"
@@ -183,8 +183,9 @@ if(NOT STANDALONE MATCHES "BUNDLED")
                 "${CMAKE_CURRENT_BINARY_DIR}/metadata.xml"
                 "${PROJECT_SOURCE_DIR}/COPYING"
                 "${PROJECT_SOURCE_DIR}/THIRD_PARTY_NOTICES.md"
+                "${PROJECT_SOURCE_DIR}/MODIFICATIONS.md"
             DESTINATION ".")
-        message(STATUS "${CMLOC}Including metadata.xml, COPYING and THIRD_PARTY_NOTICES.md for ${PKG_TARGET}/${ARCH}")
+        message(STATUS "${CMLOC}Including metadata.xml, COPYING, THIRD_PARTY_NOTICES.md and MODIFICATIONS.md for ${PKG_TARGET}/${ARCH}")
     endif(WIN32)
 
     message(STATUS "${CMLOC}CPACK_PACKAGE_VERSION: ${CPACK_PACKAGE_VERSION}, PACKAGE_VERSION ${PACKAGE_VERSION}, CPACK_PACKAGE_FILE_NAME: ${CPACK_PACKAGE_FILE_NAME}")
