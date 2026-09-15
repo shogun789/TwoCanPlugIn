@@ -20,7 +20,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Patch legacy Windows build metadata for probe
+      - name: Set OpenCPN 5.14 Windows ABI
         shell: pwsh
         run: |
           $path = 'cmake/PluginSetup.cmake'
@@ -103,7 +103,7 @@ jobs:
           & $dumpbin.FullName /headers $dll.FullName | Select-String 'machine'
           & $dumpbin.FullName /dependents $dll.FullName
 
-      - name: Generate OpenCPN msvc-wx32 tarball
+      - name: Generate and validate OpenCPN msvc-wx32 tarball
         shell: pwsh
         run: |
           Push-Location build
@@ -131,6 +131,32 @@ jobs:
           $hasPlugin = $entries | Where-Object { $_ -match '(^|/)plugins[/\\]twocan_plugin_pi\.dll$' }
           if (-not $hasPlugin) {
             throw 'Tarball does not contain plugins/twocan_plugin_pi.dll'
+          }
+
+          $metadataEntry = $entries | Where-Object { $_ -match '(^|/)metadata\.xml$' } | Select-Object -First 1
+          if (-not $metadataEntry) {
+            throw 'Tarball does not contain top-level metadata.xml required by OpenCPN 5.14'
+          }
+
+          Write-Host "metadata.xml entry: $metadataEntry"
+          $metadataText = (& tar -xOzf $package.FullName $metadataEntry) -join "`n"
+          Write-Host 'metadata.xml:'
+          Write-Host $metadataText
+
+          if ($metadataText -notmatch '<name>\s*TwoCan Plugin\s*</name>') {
+            throw 'metadata.xml has an unexpected plugin name'
+          }
+          if ($metadataText -notmatch '<version>\s*2\.1\.1\.0\s*</version>') {
+            throw 'metadata.xml has an unexpected plugin version'
+          }
+          if ($metadataText -notmatch '<api-version>\s*1\.16\s*</api-version>') {
+            throw 'metadata.xml must declare OpenCPN API 1.16'
+          }
+          if ($metadataText -notmatch '<target>\s*msvc-wx32\s*</target>') {
+            throw 'metadata.xml must declare target msvc-wx32'
+          }
+          if ($metadataText -notmatch '<target-arch>\s*x86\s*</target-arch>') {
+            throw 'metadata.xml must declare target-arch x86'
           }
 
           "OPENCPN_TARBALL=$($package.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
